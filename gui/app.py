@@ -19,6 +19,8 @@ class Application:
         self.lakehouse = Lakehouse()
         self.df_gold = None
         self.df_display = None
+        self.df_original = None
+        self.is_analyzed = False
         self.budget = None
         self.files_uploaded = []
         self.current_timestamp = None
@@ -143,9 +145,10 @@ class Application:
 
             budget = simpledialog.askinteger(
                 "Budget Anda",
-                "Masukkan budget dalam Rupiah (contoh: 5000000):",
+                "Masukkan budget dalam Rupiah (contoh: 20000000):",
                 parent=self.root,
                 minvalue=1,
+                initialvalue=20000000,
             )
 
             if budget is None:
@@ -157,6 +160,8 @@ class Application:
 
             self.current_timestamp = self.lakehouse._ts()
             self.df_display = self.df_gold.copy()
+            self.df_original = self.df_gold.copy()
+            self.is_analyzed = False
             self._track_files()
             self._display_data()
 
@@ -290,69 +295,100 @@ class Application:
 
     def _run_prescriptive(self):
         """
-        Run prescriptive analytics and update display with ranked results.
+        Toggle between showing analyzed data and original data.
 
-        Updates df_display with top 10 feasible concerts ranked by score.
-        Subsequent sorts will operate on this filtered/ranked dataset.
+        If currently showing original data, run prescriptive analysis and display results.
+        If currently showing analyzed data, switch back to original data.
         """
-        engine = Prescriptive(self.df_gold, self.budget)
-        result = engine.calc_scores()
+        if not self.is_analyzed:
+            engine = Prescriptive(self.df_gold, self.budget)
+            result = engine.calc_scores()
 
-        if result is None:
-            messagebox.showinfo("Hasil", "Tidak ada konser dalam budget Anda")
-            return
+            if result is None:
+                messagebox.showinfo("Hasil", "Tidak ada konser dalam budget Anda")
+                return
 
-        optimal, ranked = result
+            optimal, ranked = result
+            self.df_display = ranked.head(10).copy()
+            self.is_analyzed = True
 
-        self.df_display = ranked.head(10).copy()
+            for row in self.tree.get_children():
+                self.tree.delete(row)
 
-        for row in self.tree.get_children():
-            self.tree.delete(row)
+            for _, row in self.df_display.iterrows():
+                self.tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        row["nama_konser"],
+                        row["lokasi"],
+                        f"Rp{row['total_pengeluaran']:,.0f}",
+                        row["affordability"],
+                        f"{row['prescriptive_score']:.2f}",
+                    ),
+                )
 
-        for _, row in self.df_display.iterrows():
-            self.tree.insert(
-                "",
-                "end",
-                values=(
-                    row["nama_konser"],
-                    row["lokasi"],
-                    f"Rp{row['total_pengeluaran']:,.0f}",
-                    row["affordability"],
-                    f"{row['prescriptive_score']:.3f}",
-                ),
+            msg = (
+                f"REKOMENDASI OPTIMAL (Score: {optimal['prescriptive_score']:.2f})\n\n"
+                f"Konser: {optimal['nama_konser']}\n"
+                f"Lokasi: {optimal['lokasi']}\n"
+                f"Tanggal: {optimal['tanggal']}\n"
+                f"Total Biaya: Rp{optimal['total_pengeluaran']:,.0f}\n"
+                f"Sisa Budget: Rp{optimal['sisa_budget']:,.0f}\n"
+                f"Merchandise: Rp{optimal['merchandise']:,.0f}\n\n"
+                f"Breakdown Score:\n"
+                f"• Cost Efficiency: {optimal['score_cost']:.2f}\n"
+                f"• Budget Remaining: {optimal['score_remaining']:.2f}\n"
+                f"• Experience Value: {optimal['score_experience']:.2f}"
             )
 
-        msg = (
-            f"REKOMENDASI OPTIMAL (Score: {optimal['prescriptive_score']:.3f})\n\n"
-            f"Konser: {optimal['nama_konser']}\n"
-            f"Lokasi: {optimal['lokasi']}\n"
-            f"Tanggal: {optimal['tanggal']}\n"
-            f"Total Biaya: Rp{optimal['total_pengeluaran']:,.0f}\n"
-            f"Sisa Budget: Rp{optimal['sisa_budget']:,.0f}\n"
-            f"Merchandise: Rp{optimal['merchandise']:,.0f}\n\n"
-            f"Breakdown Score:\n"
-            f"• Cost Efficiency: {optimal['score_cost']:.2f}\n"
-            f"• Budget Remaining: {optimal['score_remaining']:.2f}\n"
-            f"• Experience Value: {optimal['score_experience']:.2f}"
-        )
+            messagebox.showinfo("Prescriptive Analytics Result", msg)
+            self.status.config(text=f"Optimal: {optimal['nama_konser']}")
+            self.btn_analyze.config(text="Tampilkan Data Asli")
+        else:
+            self.df_display = self.df_original.copy()
+            self.is_analyzed = False
 
-        messagebox.showinfo("Prescriptive Analytics Result", msg)
-        self.status.config(text=f"Optimal: {optimal['nama_konser']}")
+            for row in self.tree.get_children():
+                self.tree.delete(row)
+
+            for _, row in self.df_display.iterrows():
+                self.tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        row["nama_konser"],
+                        row["lokasi"],
+                        f"Rp{row['total_pengeluaran']:,.0f}",
+                        row["affordability"],
+                        (
+                            f"{row.get('prescriptive_score', 0):.2f}"
+                            if "prescriptive_score" in row
+                            else "-"
+                        ),
+                    ),
+                )
+
+            self.status.config(text="Menampilkan data asli")
+            self.btn_analyze.config(text="Analisis Prescriptive")
 
     def _reset(self):
         """
         Reset application state to initial conditions.
 
         Clears all data and UI elements:
-        - Resets data variables (df_gold, df_display, budget, files, timestamp)
+        - Resets data variables (df_gold, df_display, df_original, is_analyzed, budget, files, timestamp)
         - Clears tree view display
         - Disables download and analyze buttons
         - Resets status bar
+        - Resets analyze button text to original
 
         Does not clear local/MinIO storage files - only in-memory state.
         """
         self.df_gold = None
         self.df_display = None
+        self.df_original = None
+        self.is_analyzed = False
         self.budget = None
         self.files_uploaded = []
         self.current_timestamp = None
@@ -361,7 +397,7 @@ class Application:
             self.tree.delete(row)
 
         self.btn_download.config(state="disabled")
-        self.btn_analyze.config(state="disabled")
+        self.btn_analyze.config(state="disabled", text="Analisis Prescriptive")
         self.status.config(text="Ready")
 
         messagebox.showinfo("Reset", "Aplikasi telah direset. Silakan load CSV baru.")
