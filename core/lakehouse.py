@@ -1,9 +1,9 @@
 import pandas as pd
-import os
 from datetime import datetime
 from io import BytesIO
 from config.settings import config
-from core.storage import storage
+from core.minio import MinioStorage
+from core.localstorage import LocalStorage
 
 
 class Lakehouse:
@@ -13,52 +13,27 @@ class Lakehouse:
         self.bronze = config["bronze_folder"]
         self.silver = config["silver_folder"]
         self.gold = config["gold_folder"]
-
-        if config["use_local"]:
-            self.local_bronze = f"{config['local_data_path']}{self.bronze}"
-            self.local_silver = f"{config['local_data_path']}{self.silver}"
-            self.local_gold = f"{config['local_data_path']}{self.gold}"
-            self._ensure_local()
-
-    def _ensure_local(self):
-        """Create local directories if needed"""
-        for path in [self.local_bronze, self.local_silver, self.local_gold]:
-            os.makedirs(path, exist_ok=True)
+        self.storage = LocalStorage() if config["use_local"] else MinioStorage()
 
     def _ts(self):
         """Generate timestamp for filenames"""
         return datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    def _save(self, df, filename, folder, layer):
+    def _save(self, df, filename, folder):
         """
-        Save DataFrame to configured storage (local and/or MinIO).
-
-        Storage behavior depends on USE_LOCAL_STORAGE config:
-        - If true: Saves to local data/ folders only
-        - If false: Saves to MinIO bucket folders only
-
-        Args:
-            df: DataFrame to save
-            filename: CSV filename with timestamp
-            folder: Target folder (bronze/, silver/, or gold/)
-            layer: Layer name for local path lookup (bronze, silver, gold)
+        Save DataFrame to configured storage.
         """
-        if config["use_local"]:
-            local_path = os.path.join(getattr(self, f"local_{layer}"), filename)
-            df.to_csv(local_path, index=False)
-            print(f"{layer.capitalize()} (local): {local_path}")
-        else:
-            buffer = BytesIO()
-            df.to_csv(buffer, index=False)
-            buffer.seek(0)
-            obj_name = storage.upload(buffer, filename, folder)
-            print(f"{layer.capitalize()} (minio): {obj_name}")
+        buffer = BytesIO()
+        df.to_csv(buffer, index=False)
+        buffer.seek(0)
+        obj_name = self.storage.upload(buffer, filename, folder)
+        print(f"Saved to {obj_name}")
 
     def ingest_bronze(self, csv_path):
         """Load raw CSV into bronze layer"""
         df = pd.read_csv(csv_path)
         filename = f"konser_raw_{self._ts()}.csv"
-        self._save(df, filename, self.bronze, "bronze")
+        self._save(df, filename, self.bronze)
         return df
 
     def transform_silver(self, df_bronze):
@@ -106,7 +81,7 @@ class Lakehouse:
         df = df[df["total_pengeluaran"] >= 0]
 
         filename = f"konser_cleaned_{self._ts()}.csv"
-        self._save(df, filename, self.silver, "silver")
+        self._save(df, filename, self.silver)
         return df
 
     def aggregate_gold(self, df_silver, budget):
@@ -150,10 +125,19 @@ class Lakehouse:
 
         loc_stats = (
             df.groupby("lokasi")
-            .agg({"total_pengeluaran": ["mean", "min", "max", "count"]})
+            .agg(
+                {
+                    "total_pengeluaran": [
+                        "mean",
+                        "min",
+                        "max",
+                        "count",
+                    ]
+                }
+            )
             .round(0)
         )
 
         filename = f"konser_analytics_{self._ts()}.csv"
-        self._save(df, filename, self.gold, "gold")
+        self._save(df, filename, self.gold)
         return df, loc_stats

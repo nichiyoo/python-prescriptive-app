@@ -1,11 +1,13 @@
+import os
+import zipfile
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, simpledialog
-import zipfile
-import os
+
 from config.settings import config
 from core.lakehouse import Lakehouse
 from core.prescriptive import Prescriptive
-from core.storage import storage
+from core.minio import MinioStorage
+from core.localstorage import LocalStorage
 
 
 class Application:
@@ -17,6 +19,8 @@ class Application:
         self.root.geometry("900x700")
 
         self.lakehouse = Lakehouse()
+        self.storage = LocalStorage() if config["use_local"] else MinioStorage()
+
         self.df_gold = None
         self.df_display = None
         self.df_original = None
@@ -186,27 +190,22 @@ class Application:
         - MinIO mode: Lists objects in bucket folders and gets latest by name
         """
         self.files_uploaded = []
+        folders = [
+            config["bronze_folder"],
+            config["silver_folder"],
+            config["gold_folder"],
+        ]
 
-        if config["use_local"]:
-            for layer in ["bronze", "silver", "gold"]:
-                layer_path = getattr(self.lakehouse, f"local_{layer}")
-                if os.path.exists(layer_path):
-                    files = [
-                        os.path.join(layer_path, f)
-                        for f in os.listdir(layer_path)
-                        if f.endswith(".csv")
-                    ]
-                    files.sort(key=os.path.getmtime, reverse=True)
-                    if files:
-                        self.files_uploaded.append(files[0])
-        else:
-            for folder in [
-                config["bronze_folder"],
-                config["silver_folder"],
-                config["gold_folder"],
-            ]:
-                files = storage.list_files(folder)
-                if files:
+        for folder in folders:
+            files = self.storage.list_files(folder)
+            if files:
+                if config["use_local"]:
+                    path = [os.path.join(config["local_data_path"], f) for f in files]
+                    path = [p for p in path if os.path.exists(p)]
+                    path.sort(key=os.path.getmtime, reverse=True)
+                    if path:
+                        self.files_uploaded.append(path[0])
+                else:
                     files.sort(reverse=True)
                     self.files_uploaded.append(files[0])
 
@@ -253,7 +252,7 @@ class Application:
                         zipf.write(filepath, arcname)
                 else:
                     for obj_name in self.files_uploaded:
-                        data = storage.download(obj_name)
+                        data = self.storage.download(obj_name)
                         zipf.writestr(obj_name, data)
 
             self.status.config(text=f"ZIP saved: {save_path}")
