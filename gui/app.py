@@ -1,14 +1,15 @@
+import os
+import zipfile
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, simpledialog
-import zipfile
-import os
+
 from config.settings import config
 from core.lakehouse import Lakehouse
 from core.prescriptive import Prescriptive
 from core.storage import storage
 
 
-class KPopApp:
+class Application:
     """GUI application for K-pop concert budget recommendations"""
 
     def __init__(self, root):
@@ -144,7 +145,17 @@ class KPopApp:
             self.status.config(text="Error")
 
     def _track_files(self):
-        """Track uploaded files for download"""
+        """
+        Track the most recent files from each lakehouse layer for ZIP download.
+
+        Collects the latest CSV file from bronze, silver, and gold layers.
+        Files are sorted by modification time (newest first) to ensure we get
+        the files from the current processing session.
+
+        Behavior depends on storage mode:
+        - Local mode: Scans data/ folders and gets latest file by mtime
+        - MinIO mode: Lists objects in bucket folders and gets latest by name
+        """
         self.files_uploaded = []
 
         if config["use_local"]:
@@ -171,7 +182,20 @@ class KPopApp:
                     self.files_uploaded.append(files[0])
 
     def _download_zip(self):
-        """Download all lakehouse files as ZIP"""
+        """
+        Create and download a ZIP archive containing all lakehouse files.
+
+        Collects bronze, silver, and gold layer files into a single ZIP archive.
+        The ZIP preserves the folder structure (bronze/, silver/, gold/).
+        ZIP filename uses the same timestamp as the processed files.
+
+        Process:
+        1. Prompt user for save location with timestamped filename
+        2. Create ZIP with deflate compression
+        3. For local mode: Add files directly from filesystem
+        4. For MinIO mode: Download from MinIO then add to ZIP
+        5. Preserve folder hierarchy in ZIP structure
+        """
         if not self.files_uploaded:
             messagebox.showwarning("Warning", "Tidak ada file untuk didownload")
             return

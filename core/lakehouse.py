@@ -30,7 +30,19 @@ class Lakehouse:
         return datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def _save(self, df, filename, folder, layer):
-        """Save DataFrame to local and/or MinIO"""
+        """
+        Save DataFrame to configured storage (local and/or MinIO).
+
+        Storage behavior depends on USE_LOCAL_STORAGE config:
+        - If true: Saves to local data/ folders only
+        - If false: Saves to MinIO bucket folders only
+
+        Args:
+            df: DataFrame to save
+            filename: CSV filename with timestamp
+            folder: Target folder (bronze/, silver/, or gold/)
+            layer: Layer name for local path lookup (bronze, silver, gold)
+        """
         if config["use_local"]:
             local_path = os.path.join(getattr(self, f"local_{layer}"), filename)
             df.to_csv(local_path, index=False)
@@ -50,7 +62,19 @@ class Lakehouse:
         return df
 
     def transform_silver(self, df_bronze):
-        """Clean and transform data for silver layer"""
+        """
+        Clean and transform raw data for silver layer.
+
+        Transformation steps:
+        1. Validate required columns exist
+        2. Convert 'tanggal' to datetime (coerce errors to NaT)
+        3. Convert numeric columns to proper numeric types (coerce errors to NaN)
+        4. Remove rows with missing concert name or total cost
+        5. Remove rows with negative total cost (data quality filter)
+        6. Save cleaned data to silver layer
+
+        Returns cleaned DataFrame ready for analytics.
+        """
         req_cols = [
             "nama_konser",
             "lokasi",
@@ -86,7 +110,26 @@ class Lakehouse:
         return df
 
     def aggregate_gold(self, df_silver, budget):
-        """Create analytics-ready gold layer"""
+        """
+        Create analytics-ready gold layer with derived metrics.
+
+        Adds calculated columns for business intelligence:
+
+        1. efficiency_score: Normalized cost ratio (0-1 scale)
+           - Lower cost concerts get higher scores
+           - Formula: cost / (max_cost + 1)
+
+        2. affordability: Budget-based categorization
+           - "Sangat Terjangkau": <= 50% of budget
+           - "Terjangkau": <= 80% of budget
+           - "Limit": <= 100% of budget
+           - "Tidak Terjangkau": > budget
+
+        3. location_stats: Aggregated statistics by location
+           - Mean, min, max, count of total_pengeluaran per location
+
+        Returns (gold_df, location_stats) tuple.
+        """
         df = df_silver.copy()
 
         df["efficiency_score"] = df["total_pengeluaran"] / (

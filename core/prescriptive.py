@@ -1,3 +1,6 @@
+from config.settings import config
+
+
 class Prescriptive:
     """Prescriptive analytics engine for concert recommendations"""
 
@@ -6,7 +9,39 @@ class Prescriptive:
         self.budget = budget
 
     def calc_scores(self):
-        """Calculate prescriptive scores and return optimal recommendation"""
+        """
+        Calculate prescriptive scores for concert recommendations.
+
+        Multi-criteria scoring algorithm with weighted components:
+
+        1. Cost Score (weight from config, default 40%):
+           - Measures cost efficiency relative to most expensive option
+           - Formula: 1 - (concert_cost / max_cost)
+           - Lower cost = higher score
+
+        2. Budget Remaining Score (weight from config, default 30%):
+           - Rewards concerts that leave more budget unused
+           - Formula: remaining_budget / max_remaining_budget
+           - More remaining budget = higher score
+
+        3. Experience Score (weight from config, default 30%):
+           - Values merchandise spending as proxy for experience quality
+           - Formula: merchandise_cost / max_merchandise_cost
+           - Higher merchandise spending = higher score
+
+        Weights are configurable via .env:
+        - WEIGHT_COST (default: 0.4)
+        - WEIGHT_REMAINING (default: 0.3)
+        - WEIGHT_EXPERIENCE (default: 0.3)
+
+        Final prescriptive_score = (weight_cost * cost) +
+                                   (weight_remaining * remaining) +
+                                   (weight_experience * experience)
+
+        Returns:
+            - None if no concerts within budget
+            - (optimal_concert, ranked_dataframe) tuple otherwise
+        """
         feasible = self.df[self.df["total_pengeluaran"] <= self.budget].copy()
 
         if feasible.empty:
@@ -26,9 +61,9 @@ class Prescriptive:
         )
 
         feasible["prescriptive_score"] = (
-            0.4 * feasible["score_cost"]
-            + 0.3 * feasible["score_remaining"]
-            + 0.3 * feasible["score_experience"]
+            config["weight_cost"] * feasible["score_cost"]
+            + config["weight_remaining"] * feasible["score_remaining"]
+            + config["weight_experience"] * feasible["score_experience"]
         )
 
         optimal_idx = feasible["prescriptive_score"].idxmax()

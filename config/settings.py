@@ -15,4 +15,7 @@ config = {
     "local_data_path": os.getenv("LOCAL_DATA_PATH", "data/"),
     "use_local": os.getenv("USE_LOCAL_STORAGE", "true").lower() == "true",
     "presigned_expiry": int(os.getenv("PRESIGNED_EXPIRY", "3600")),
+    "weight_cost": float(os.getenv("WEIGHT_COST", "0.4")),
+    "weight_remaining": float(os.getenv("WEIGHT_REMAINING", "0.3")),
+    "weight_experience": float(os.getenv("WEIGHT_EXPERIENCE", "0.3")),
 }

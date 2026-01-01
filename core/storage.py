@@ -4,7 +4,15 @@ from config.settings import config
 
 
 class Storage:
-    """MinIO storage client with file operations"""
+    """
+    MinIO storage client with file operations.
+
+    Lazy initialization based on USE_LOCAL_STORAGE config:
+    - If true: client remains None, all operations return None/empty
+    - If false: connects to MinIO and initializes bucket
+
+    This allows the app to run without MinIO when using local storage only.
+    """
 
     def __init__(self):
         if not config["use_local"]:
@@ -45,7 +53,18 @@ class Storage:
         return obj_name
 
     def get_url(self, obj_name):
-        """Generate pre-signed download URL"""
+        """
+        Generate pre-signed download URL for temporary file access.
+
+        Creates a time-limited URL that allows direct download from MinIO
+        without requiring authentication. URL expires based on config
+        (default: 1 hour).
+
+        This is the recommended approach for file downloads as it:
+        - Reduces server load (direct MinIO access)
+        - Provides temporary access without permanent permissions
+        - Works well with browser downloads
+        """
         if not self.client:
             return None
 

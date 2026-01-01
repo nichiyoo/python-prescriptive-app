@@ -1,8 +1,8 @@
 import tkinter as tk
-from gui.app import KPopApp
+from gui.app import Application
 
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = KPopApp(root)
+    app = Application(root)
     root.mainloop()
