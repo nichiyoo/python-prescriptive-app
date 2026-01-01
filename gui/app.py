@@ -116,7 +116,7 @@ class Application:
             self.tree.heading(
                 col, text=col, command=lambda c=col: self._sort_column(col_map[c], c)
             )
-            self.tree.column(col, anchor="center", width=150)
+            self.tree.column(col, anchor="w", width=150)
             self.sort_reverse[col] = False
 
         self.tree.pack(fill="both", expand=True)
