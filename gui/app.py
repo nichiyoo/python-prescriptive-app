@@ -18,9 +18,11 @@ class Application:
 
         self.lakehouse = Lakehouse()
         self.df_gold = None
+        self.df_display = None
         self.budget = None
         self.files_uploaded = []
         self.current_timestamp = None
+        self.sort_reverse = {}
 
         self._build_ui()
 
@@ -100,9 +102,20 @@ class Application:
         )
         self.tree.column("#0", width=0, stretch=tk.NO)
 
+        col_map = {
+            "Nama Konser": "nama_konser",
+            "Lokasi": "lokasi",
+            "Total": "total_pengeluaran",
+            "Affordability": "affordability",
+            "Score": "prescriptive_score",
+        }
+
         for col in self.tree["columns"]:
-            self.tree.heading(col, text=col)
+            self.tree.heading(
+                col, text=col, command=lambda c=col: self._sort_column(col_map[c], c)
+            )
             self.tree.column(col, anchor="center", width=150)
+            self.sort_reverse[col] = False
 
         self.tree.pack(fill="both", expand=True)
 
@@ -143,6 +156,7 @@ class Application:
             self.df_gold, _ = self.lakehouse.aggregate_gold(df_silver, budget)
 
             self.current_timestamp = self.lakehouse._ts()
+            self.df_display = self.df_gold.copy()
             self._track_files()
             self._display_data()
 
@@ -247,11 +261,17 @@ class Application:
             self.status.config(text="Error creating ZIP")
 
     def _display_data(self):
-        """Display data in tree view"""
+        """
+        Display current data in tree view.
+
+        Shows data from df_display which contains either:
+        - Original gold layer data (after initial load)
+        - Filtered and ranked prescriptive analysis results (after analysis)
+        """
         for row in self.tree.get_children():
             self.tree.delete(row)
 
-        for _, row in self.df_gold.iterrows():
+        for _, row in self.df_display.iterrows():
             self.tree.insert(
                 "",
                 "end",
@@ -269,7 +289,12 @@ class Application:
             )
 
     def _run_prescriptive(self):
-        """Run prescriptive analytics"""
+        """
+        Run prescriptive analytics and update display with ranked results.
+
+        Updates df_display with top 10 feasible concerts ranked by score.
+        Subsequent sorts will operate on this filtered/ranked dataset.
+        """
         engine = Prescriptive(self.df_gold, self.budget)
         result = engine.calc_scores()
 
@@ -279,10 +304,12 @@ class Application:
 
         optimal, ranked = result
 
+        self.df_display = ranked.head(10).copy()
+
         for row in self.tree.get_children():
             self.tree.delete(row)
 
-        for _, row in ranked.head(10).iterrows():
+        for _, row in self.df_display.iterrows():
             self.tree.insert(
                 "",
                 "end",
@@ -317,7 +344,7 @@ class Application:
         Reset application state to initial conditions.
 
         Clears all data and UI elements:
-        - Resets data variables (df_gold, budget, files, timestamp)
+        - Resets data variables (df_gold, df_display, budget, files, timestamp)
         - Clears tree view display
         - Disables download and analyze buttons
         - Resets status bar
@@ -325,6 +352,7 @@ class Application:
         Does not clear local/MinIO storage files - only in-memory state.
         """
         self.df_gold = None
+        self.df_display = None
         self.budget = None
         self.files_uploaded = []
         self.current_timestamp = None
@@ -337,3 +365,57 @@ class Application:
         self.status.config(text="Ready")
 
         messagebox.showinfo("Reset", "Aplikasi telah direset. Silakan load CSV baru.")
+
+    def _sort_column(self, df_col, display_col):
+        """
+        Sort table by clicked column header.
+
+        Toggles sort direction on each click:
+        - First click: ascending order
+        - Second click: descending order
+        - Third click: ascending again (cycle continues)
+
+        Sorts df_display (current view) not df_gold (original):
+        - Before analysis: sorts all gold layer data
+        - After analysis: sorts only the top 10 ranked results
+
+        Args:
+            df_col: DataFrame column name to sort by
+            display_col: Display column name for tracking sort state
+
+        Special handling for numeric columns (Total, Score):
+        - Sorts by actual numeric value, not string representation
+        """
+        if self.df_display is None:
+            return
+
+        self.sort_reverse[display_col] = not self.sort_reverse[display_col]
+
+        sorted_df = self.df_display.copy()
+
+        if df_col == "prescriptive_score" and df_col not in sorted_df.columns:
+            sorted_df[df_col] = 0
+
+        sorted_df = sorted_df.sort_values(
+            by=df_col, ascending=not self.sort_reverse[display_col]
+        )
+
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        for _, row in sorted_df.iterrows():
+            self.tree.insert(
+                "",
+                "end",
+                values=(
+                    row["nama_konser"],
+                    row["lokasi"],
+                    f"Rp{row['total_pengeluaran']:,.0f}",
+                    row["affordability"],
+                    (
+                        f"{row.get('prescriptive_score', 0):.2f}"
+                        if "prescriptive_score" in row
+                        else "-"
+                    ),
+                ),
+            )
