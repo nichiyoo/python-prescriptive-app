@@ -1,8 +1,7 @@
-import os
-import zipfile
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, simpledialog
-
+import zipfile
+import os
 from config.settings import config
 from core.lakehouse import Lakehouse
 from core.prescriptive import Prescriptive
@@ -71,6 +70,17 @@ class Application:
             width=20,
         )
         self.btn_analyze.pack(side="left", padx=5)
+
+        self.btn_reset = tk.Button(
+            btn_frame,
+            text="Reset",
+            command=self._reset,
+            font=("Arial", 11),
+            bg="#F44336",
+            fg="white",
+            width=15,
+        )
+        self.btn_reset.pack(side="left", padx=5)
 
         result_frame = tk.Frame(self.root)
         result_frame.pack(fill="both", expand=True, padx=20, pady=10)
@@ -301,3 +311,29 @@ class Application:
 
         messagebox.showinfo("Prescriptive Analytics Result", msg)
         self.status.config(text=f"Optimal: {optimal['nama_konser']}")
+
+    def _reset(self):
+        """
+        Reset application state to initial conditions.
+
+        Clears all data and UI elements:
+        - Resets data variables (df_gold, budget, files, timestamp)
+        - Clears tree view display
+        - Disables download and analyze buttons
+        - Resets status bar
+
+        Does not clear local/MinIO storage files - only in-memory state.
+        """
+        self.df_gold = None
+        self.budget = None
+        self.files_uploaded = []
+        self.current_timestamp = None
+
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        self.btn_download.config(state="disabled")
+        self.btn_analyze.config(state="disabled")
+        self.status.config(text="Ready")
+
+        messagebox.showinfo("Reset", "Aplikasi telah direset. Silakan load CSV baru.")
